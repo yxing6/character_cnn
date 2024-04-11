@@ -1,5 +1,6 @@
 import string
 import random
+
 random.seed(353)
 from random import randint
 import cv2
@@ -23,42 +24,220 @@ import ipywidgets as ipywidgets
 from keras.preprocessing.image import ImageDataGenerator
 
 
+def generate_image_tuples(parent_folder):
+    """
+    Generate a list of tuples where each tuple's first element is the folder name
+    and the second element is one image read from that folder.
+
+    Parameters: parent_dir: Path to the parent folder
+    Returns: List of tuples [(folder_name, image1), (folder_name, image2), ...]
+    """
+
+    image_tuples = []
+
+    # Iterate over each item in the parent_folder
+    for folder_name in os.listdir(parent_folder):
+        folder_path = os.path.join(parent_folder, folder_name)
+
+        # Check if the item is a directory
+        if os.path.isdir(folder_path):
+            for image in os.listdir(folder_path):
+                image_path = os.path.join(folder_path, image)
+
+                # # Open the JPG file in binary mode
+                # with open(image_path, 'rb') as f:
+                #     # Read the binary data
+                #     binary_data = f.read()
+                #
+                image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+                image_tuples.append((folder_name, image))
+        # else print:
+        else:
+            print("this folder doesn't have subfolders, use files_in_folder function")
+
+    # image_tuples.sort()
+    # cannot simply sort since many items share the same first letter/number
+
+    return image_tuples
+
+
+# map the character to int by their unicode code representation
+# A - Z as 0 - 25 and 0 - 9 as 26 - 35
+def char_to_int(char):
+    if 'A' <= char <= 'Z':
+        return ord(char) - ord('A')
+    elif '0' <= char <= '9':
+        return 26 + ord(char) - ord('0')
+    elif char == '_':
+        return 36
+    else:
+        raise ValueError(f"Invalid character: {char}")
+
+
+NUMBER_OF_LABELS = 37
+CONFIDENCE_THRESHOLD = 0.01
+
+
+def convert_to_one_hot(Y, C):
+    Y = np.eye(C)[Y.reshape(-1)]
+    return Y
+
+
 if __name__ == '__main__':
-    fileBright = "/home/fizzer/PycharmProjects/character_cnn/image/my_controller_image/raw/43.jpg"
-    fileDark = "/home/fizzer/PycharmProjects/character_cnn/image/my_controller_image/raw/6.jpg"
+    image_folder_path = "/home/fizzer/PycharmProjects/character_cnn/image/my_controller_image/labelled"
+    images = generate_image_tuples(image_folder_path)
+    # print(images[0:2])
 
-    bright = cv2.imread(fileBright)
-    dark = cv2.imread(fileDark)
+    # Generate X and Y datasets
+    X_dataset_orig = np.array([data[1] for data in images])
+    Y_dataset_orig = np.array([data[0] for data in images])
+    Y_dataset_orig = np.array([char_to_int(char) for char in Y_dataset_orig])
 
-    cv2.imshow('RGB Bright Image', bright)
-    cv2.imshow("RGB dark Image", dark)
+    print(X_dataset_orig.shape)
 
-    gray_b = cv2.cvtColor(bright, cv2.COLOR_BGR2GRAY)
-    gray_d = cv2.cvtColor(dark, cv2.COLOR_BGR2GRAY)
+    print(X_dataset_orig[0, 40, 40])
 
-    cv2.imshow('Grey Bright Image', gray_b)
-    cv2.imshow("Grey dark Image", gray_d)
+    print(Y_dataset_orig[230:250])
 
-    gray_b_brightness = np.mean(gray_b)
-    gray_d_brightness = np.mean(gray_d)
+    # Normalize X (images) dataset
+    X_dataset = X_dataset_orig / 255.  # if not normalized, learning will be slow
+    # Convert Y dataset to one-hot encoding
+    Y_dataset = convert_to_one_hot(Y_dataset_orig, NUMBER_OF_LABELS)
+    print(Y_dataset[0])
 
-    target = 2
-    delta_b_brightness = target - gray_b_brightness
-    delta_d_brightness = target - gray_d_brightness
+    VALIDATION_SPLIT = 0.3
 
-    adjusted_b_image = cv2.add(gray_b, np.full_like(gray_b, delta_b_brightness, dtype=np.uint8))
-    adjusted_d_image = cv2.add(gray_d, np.full_like(gray_d, delta_d_brightness, dtype=np.uint8))
+    split_index = math.ceil(X_dataset.shape[0] * (1 - VALIDATION_SPLIT))
 
-    cv2.imshow('Grey Bright Image adjusted', adjusted_b_image)
-    cv2.imshow("Grey dark Image adjusted", adjusted_d_image)
+    X_resized = np.empty((X_dataset.shape[0], 120, 60), dtype=np.float64)
+    for i, image in enumerate(X_dataset):
+        resized_image = cv2.resize(image, (60, 120)).astype(
+            np.float64)  # Resize each image to (120, 60) and convert to float64
+        X_resized[i] = resized_image
 
-    threshold = 240
-    _, binary_b = cv2.threshold(adjusted_b_image, threshold, 255, cv2.THRESH_BINARY)
-    _, binary_d = cv2.threshold(adjusted_d_image, threshold, 255, cv2.THRESH_BINARY)
+    X_train_dataset = X_resized[:split_index]
+    Y_train_dataset = Y_dataset[:split_index]
 
-    cv2.imshow('Bright binary', binary_b)
-    cv2.imshow("Dark binary", binary_d)
+    X_val_dataset = X_resized[split_index:]
+    Y_val_dataset = Y_dataset[split_index:]
 
-    cv2.waitKey()
+    print("X shape: " + str(X_resized.shape))
+    print("Y shape: " + str(Y_dataset.shape))
+    print("Total examples: {:d}\nTraining examples: {:d}\n"
+          "Validation examples: {:d}".
+          format(X_resized.shape[0],
+                 X_train_dataset.shape[0],
+                 X_val_dataset.shape[0]))
 
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+    # Convert the list to a NumPy array
+    X_dataset = np.array(X_resized)
+
+
+    # # Display images in the training data set.
+    # def displayImage(index):
+    #     plt.imshow(X_dataset[index])
+    #     caption = ("y = " + str(Y_dataset[index]))  # str(np.squeeze(Y_dataset_orig[:, index])))
+    #     plt.text(0.5, 0.5, caption,
+    #              color='orange', fontsize=20,
+    #              horizontalalignment='left', verticalalignment='top')
+    #
+    #
+    # interact(displayImage,
+    #          index=ipywidgets.IntSlider(min=0, max=X_dataset_orig.shape[0],
+    #                                     step=1, value=10))
+
+
+    def reset_weights(model):
+        for ix, layer in enumerate(model.layers):
+            if (hasattr(model.layers[ix], 'kernel_initializer') and
+                    hasattr(model.layers[ix], 'bias_initializer')):
+                weight_initializer = model.layers[ix].kernel_initializer
+                bias_initializer = model.layers[ix].bias_initializer
+
+                old_weights, old_biases = model.layers[ix].get_weights()
+
+                model.layers[ix].set_weights([
+                    weight_initializer(shape=old_weights.shape),
+                    bias_initializer(shape=len(old_biases))])
+
+
+    conv_model = models.Sequential()
+    # conv_model.add(layers.Rescaling(1./255))
+    # conv_model.add(layers.Conv2D(32, (3, 3), activation='relu',
+    #                              input_shape=(140, 100, 3)))  # dimension of x dataset
+
+    conv_model.add(layers.Conv2D(32, (3, 3), activation='relu',
+                                 input_shape=(120, 60, 1)))  # dimension of x dataset
+    conv_model.add(layers.MaxPooling2D((2, 2)))
+    conv_model.add(layers.Conv2D(64, (3, 3), activation='relu'))
+    conv_model.add(layers.MaxPooling2D((2, 2)))
+    conv_model.add(layers.Conv2D(128, (3, 3), activation='relu'))
+    conv_model.add(layers.MaxPooling2D((2, 2)))
+    conv_model.add(layers.Conv2D(128, (3, 3), activation='relu'))
+    conv_model.add(layers.MaxPooling2D((2, 2)))
+    conv_model.add(layers.Flatten())
+    conv_model.add(layers.Dropout(0.5))
+    conv_model.add(layers.Dense(512, activation='relu'))
+    conv_model.add(layers.Dense(37, activation='softmax'))
+
+    # remove layers, neurons
+    # reduce input size
+
+
+    # conv_model = models.Sequential()
+    #
+    # conv_model.add(layers.Conv2D(32, (3, 3), activation='relu',
+    #                              input_shape=(80, 45, 1)))  # dimension of x dataset
+    # conv_model.add(layers.BatchNormalization())
+    # conv_model.add(layers.MaxPooling2D((2, 2)))
+    #
+    # conv_model.add(layers.Conv2D(32, (3, 3), activation='relu'))
+    # conv_model.add(layers.BatchNormalization())
+    # conv_model.add(layers.MaxPooling2D((2, 2)))
+    #
+    # # conv_model.add(layers.Conv2D(64, (3, 3), activation='relu'))
+    # # conv_model.add(layers.BatchNormalization())
+    # # conv_model.add(layers.MaxPooling2D((2, 2)))
+    #
+    # # conv_model.add(layers.Conv2D(128, (3, 3), activation='relu'))
+    # # conv_model.add(layers.BatchNormalization())
+    # # conv_model.add(layers.MaxPooling2D((2, 2)))
+    #
+    # conv_model.add(layers.Flatten())
+    # conv_model.add(layers.Dense(128, activation='relu'))
+    # conv_model.add(layers.Dropout(0.5))
+    # # conv_model.add(layers.Dense(64, activation='relu'))
+    # conv_model.add(layers.Dense(37, activation='softmax'))
+
+    LEARNING_RATE = 1e-4
+    conv_model.compile(loss='categorical_crossentropy',
+                       # optimizer='adam',
+                       optimizer=optimizers.RMSprop(learning_rate=LEARNING_RATE),
+                       metrics=['acc'])
+    reset_weights(conv_model)
+
+    history_conv = conv_model.fit(X_dataset, Y_dataset,
+                                  validation_split=VALIDATION_SPLIT,
+                                  epochs=40,
+                                  batch_size=512)
+
+    conv_model.summary()
+    # Plot model loss
+    plt.plot(history_conv.history['loss'])
+    plt.plot(history_conv.history['val_loss'])
+    plt.title('Model loss')
+    plt.ylabel('loss')
+    plt.xlabel('epoch')
+    plt.legend(['train loss', 'val loss'], frameon=False)
+    # plt.savefig("model loss.png")
+    plt.show()
+
+    # Plot model accuracy
+    plt.plot(history_conv.history['acc'])
+    plt.plot(history_conv.history['val_acc'])
+    plt.title('model accuracy')
+    plt.ylabel('accuracy (%)')
+    plt.xlabel('epoch')
+    plt.legend(['train accuracy', 'val accuracy'], frameon=False)
+    # plt.savefig("model accuracy.png")
+    plt.show()
