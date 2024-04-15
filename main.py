@@ -49,8 +49,9 @@ def generate_image_tuples(parent_folder):
                 #     # Read the binary data
                 #     binary_data = f.read()
                 #
-                image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
-                image_tuples.append((folder_name, image))
+                cv_image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+                print(cv_image.shape)
+                image_tuples.append((folder_name, cv_image))
         # else print:
         else:
             print("this folder doesn't have subfolders, use files_in_folder function")
@@ -86,14 +87,18 @@ def convert_to_one_hot(Y, C):
 if __name__ == '__main__':
     image_folder_path = "/home/fizzer/PycharmProjects/character_cnn/image/my_controller_image/labelled"
     images = generate_image_tuples(image_folder_path)
-    # print(images[0:2])
 
+    np.random.shuffle(images)
+    # print(len(images))
+
+    # print(images[0:2])
     # Generate X and Y datasets
     X_dataset_orig = np.array([data[1] for data in images])
     Y_dataset_orig = np.array([data[0] for data in images])
     Y_dataset_orig = np.array([char_to_int(char) for char in Y_dataset_orig])
 
     print(X_dataset_orig.shape)
+    print(Y_dataset_orig.shape)
 
     print(X_dataset_orig[0, 40, 40])
 
@@ -105,7 +110,7 @@ if __name__ == '__main__':
     Y_dataset = convert_to_one_hot(Y_dataset_orig, NUMBER_OF_LABELS)
     print(Y_dataset[0])
 
-    VALIDATION_SPLIT = 0.3
+    VALIDATION_SPLIT = 0.09
 
     split_index = math.ceil(X_dataset.shape[0] * (1 - VALIDATION_SPLIT))
 
@@ -160,30 +165,35 @@ if __name__ == '__main__':
                     weight_initializer(shape=old_weights.shape),
                     bias_initializer(shape=len(old_biases))])
 
+    def build_model():
+        inputLayer = tf.keras.layers.Input(shape=(120, 60, 1))
+        conv_model = tf.keras.layers.Rescaling(1./255)(inputLayer)
 
-    conv_model = models.Sequential()
-    # conv_model.add(layers.Rescaling(1./255))
-    # conv_model.add(layers.Conv2D(32, (3, 3), activation='relu',
-    #                              input_shape=(140, 100, 3)))  # dimension of x dataset
+        conv_model = tf.keras.layers.Conv2D(32, 3, padding='same')(conv_model)
+        conv_model = tf.keras.layers.BatchNormalization()(conv_model)
+        conv_model = tf.keras.layers.Activation('relu')(conv_model)
+        conv_model = tf.keras.layers.MaxPooling2D(pool_size=(2,2), strides=2)(conv_model)
 
-    conv_model.add(layers.Conv2D(32, (3, 3), activation='relu',
-                                 input_shape=(120, 60, 1)))  # dimension of x dataset
-    conv_model.add(layers.MaxPooling2D((2, 2)))
-    conv_model.add(layers.Conv2D(64, (3, 3), activation='relu'))
-    conv_model.add(layers.MaxPooling2D((2, 2)))
-    conv_model.add(layers.Conv2D(128, (3, 3), activation='relu'))
-    conv_model.add(layers.MaxPooling2D((2, 2)))
-    conv_model.add(layers.Conv2D(128, (3, 3), activation='relu'))
-    conv_model.add(layers.MaxPooling2D((2, 2)))
-    conv_model.add(layers.Flatten())
-    conv_model.add(layers.Dropout(0.5))
-    conv_model.add(layers.Dense(512, activation='relu'))
-    conv_model.add(layers.Dense(37, activation='softmax'))
+        conv_model = tf.keras.layers.Conv2D(32, 3, padding='same')(conv_model)
+        conv_model = tf.keras.layers.BatchNormalization()(conv_model)
+        conv_model = tf.keras.layers.Activation('relu')(conv_model)
+        conv_model = tf.keras.layers.MaxPooling2D(pool_size=(2,2), strides=2)(conv_model)
+
+        conv_model = tf.keras.layers.Conv2D(32, 3, padding='same')(conv_model)
+        conv_model = tf.keras.layers.BatchNormalization()(conv_model)
+        conv_model = tf.keras.layers.Activation('relu')(conv_model)
+        conv_model = tf.keras.layers.MaxPooling2D(pool_size=(3,3), strides=2)(conv_model)
+
+        conv_model = tf.keras.layers.Flatten()(conv_model)
+        conv_model = tf.keras.layers.Dense(64)(conv_model)
+        conv_model = tf.keras.layers.BatchNormalization()(conv_model)
+        conv_model = tf.keras.layers.Dense(37, activation='softmax')(conv_model)
+        return tf.keras.models.Model(inputs=inputLayer, outputs=conv_model)
 
     # remove layers, neurons
     # reduce input size
 
-
+    conv_model = build_model()
     # conv_model = models.Sequential()
     #
     # conv_model.add(layers.Conv2D(32, (3, 3), activation='relu',
@@ -208,20 +218,18 @@ if __name__ == '__main__':
     # conv_model.add(layers.Dropout(0.5))
     # # conv_model.add(layers.Dense(64, activation='relu'))
     # conv_model.add(layers.Dense(37, activation='softmax'))
+    conv_model.summary()
 
-    LEARNING_RATE = 1e-4
+    LEARNING_RATE = 1e-3
     conv_model.compile(loss='categorical_crossentropy',
-                       # optimizer='adam',
                        optimizer=optimizers.RMSprop(learning_rate=LEARNING_RATE),
                        metrics=['acc'])
     reset_weights(conv_model)
 
-    history_conv = conv_model.fit(X_dataset, Y_dataset,
-                                  validation_split=VALIDATION_SPLIT,
-                                  epochs=40,
-                                  batch_size=512)
+    history_conv = conv_model.fit(X_resized, Y_dataset,
+                                  epochs=84,
+                                  batch_size=64, validation_split=VALIDATION_SPLIT)
 
-    conv_model.summary()
     # Plot model loss
     plt.plot(history_conv.history['loss'])
     plt.plot(history_conv.history['val_loss'])
@@ -229,7 +237,7 @@ if __name__ == '__main__':
     plt.ylabel('loss')
     plt.xlabel('epoch')
     plt.legend(['train loss', 'val loss'], frameon=False)
-    # plt.savefig("model loss.png")
+    plt.savefig("model loss.png")
     plt.show()
 
     # Plot model accuracy
@@ -239,5 +247,7 @@ if __name__ == '__main__':
     plt.ylabel('accuracy (%)')
     plt.xlabel('epoch')
     plt.legend(['train accuracy', 'val accuracy'], frameon=False)
-    # plt.savefig("model accuracy.png")
+    plt.savefig("model accuracy.png")
     plt.show()
+
+    conv_model.save('character_prediction_local_0415.h5')
